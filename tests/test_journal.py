@@ -612,6 +612,13 @@ class DeferredMinorTests(JournalCase):
                     journal.parse_date(bad)
         self.assertEqual(journal.parse_date("2026-10-05").isoformat(), "2026-10-05")
 
+    def test_due_entries_require_strict_iso_dates(self):
+        as_of = journal.parse_date("2026-10-02")
+        compact = {"status": "open", "know_by": "20261001"}
+        dashed = {"status": "open", "know_by": "2026-10-01"}
+        self.assertFalse(journal._is_due(compact, as_of))
+        self.assertTrue(journal._is_due(dashed, as_of))
+
     def test_symlinked_journal_is_written_through(self):
         real = Path(self.tmp.name) / "real.jsonl"
         real.write_text("")

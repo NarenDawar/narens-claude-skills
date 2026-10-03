@@ -335,8 +335,8 @@ def _is_due(entry, as_of):
     if entry["status"] != "open" or not entry.get("know_by"):
         return False
     try:
-        return date.fromisoformat(entry["know_by"]) <= as_of
-    except ValueError:
+        return parse_date(entry["know_by"]) <= as_of
+    except JournalError:
         return False
 
 
