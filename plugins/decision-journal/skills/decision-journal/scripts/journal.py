@@ -334,8 +334,11 @@ def add_entry(path, *, type, text, confidence=None, unit=None, estimate=None,
 def _is_due(entry, as_of):
     if entry["status"] != "open" or not entry.get("know_by"):
         return False
+    val = entry["know_by"]
+    if not isinstance(val, str) or not _ISO_DATE.match(val):
+        return False
     try:
-        return date.fromisoformat(entry["know_by"]) <= as_of
+        return date.fromisoformat(val) <= as_of
     except ValueError:
         return False
 

@@ -153,6 +153,17 @@ class ListTests(JournalCase):
         self.assertEqual(ids("open"), [1, 2, 3, 4])
         self.assertEqual(ids(None), [1, 2, 3, 4, 5])
 
+    def test_compact_or_non_iso_date_is_not_due(self):
+        # A hand-edited entry with compact format (YYYYMMDD) must not be treated as due
+        e = self.claim("compact")
+        slots = journal.load(self.path)
+        for _, val in slots:
+            if val.get("id") == e["id"]:
+                val["know_by"] = "20261001"
+        journal.save(self.path, slots)
+        due_ids = [entry["id"] for entry in journal.list_entries(self.path, "due")]
+        self.assertNotIn(e["id"], due_ids)
+
 
 class GradeTests(JournalCase):
     def test_grade_claim(self):
