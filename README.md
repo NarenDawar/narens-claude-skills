@@ -54,6 +54,7 @@ Plugin names, versions and behavior are unchanged. Removing the old marketplace 
 
 | Mod | What it does | Install |
 | --- | --- | --- |
+| [`local-answer-router`](plugins/local-answer-router/README.md) | Answers trivial questions (what branch, what changed, did the last test pass) from git and the last test run on your machine, with no model tokens. | `/plugin install local-answer-router@narens-claude-toolkit` |
 | [`subagent-meter`](plugins/subagent-meter/README.md) | A live status line showing how much of your session's tokens go to subagents, and which agent type uses the most. | `/plugin install subagent-meter@narens-claude-toolkit` |
 
 ### MCP servers

@@ -38,6 +38,11 @@
       "name": "schedule-doctor",
       "source": "./plugins/schedule-doctor",
       "description": "Use when the user is about to schedule a Claude task, or asks why a scheduled task, /loop, cron job or routine did not run, ran late, or stopped partway (for example 'will this scheduled task actually run?', 'why didn't my 7am task fire?', 'check this before I schedule it')."
+    },
+    {
+      "name": "local-answer-router",
+      "source": "./plugins/local-answer-router",
+      "description": "Answers trivial questions (what branch, what changed, did the last test pass) from git and the last test run on your machine, with no model tokens."
     }
   ]
 }
