@@ -57,6 +57,8 @@ describe('matchIntent', () => {
 
   test('a message over 60 characters never matches', () => {
     expect(matchIntent('what branch am i on' + ' '.repeat(45) + 'x')).toBe(null)
+    // Would match once the spaces collapse, so only the length rule keeps it out.
+    expect(matchIntent('what branch am i on' + ' '.repeat(50) + '?')).toBe(null)
     expect(matchIntent('what branch am i on' + ' '.repeat(60))).toBe('branch') // trimmed first
   })
 
