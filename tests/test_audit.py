@@ -301,9 +301,45 @@ class SummarizeTests(unittest.TestCase):
         ])
         summary = audit.summarize(unit, RATES)
         self.assertAlmostEqual(summary["cost"], 3 + 15 + (500 * 0.3 + 250 * 3.75) / 1e6)
-        self.assertEqual(summary["fixed"], 750)
+        self.assertEqual(summary["fixed"], 1_000_750)
         self.assertEqual(summary["messages"], 2)
         self.assertEqual(summary["first_model"], "claude-sonnet-5-5")
+
+    def test_uncached_fixed_context_excludes_output_and_later_input(self):
+        first = self.message("claude-sonnet-5-5", input=1200, output=50)
+        original = first["tokens"].copy()
+        summary = audit.summarize(self.unit([
+            first, self.message("claude-sonnet-5-5", input=9000, output=70),
+        ]), RATES)
+        self.assertEqual(summary["fixed"], 1200)
+        self.assertEqual(summary["tokens"]["input"], 10_200)
+        self.assertEqual(summary["tokens"]["output"], 120)
+        self.assertAlmostEqual(summary["cost"], (10_200 * 3 + 120 * 15) / 1e6)
+        self.assertEqual(first["tokens"], original)
+
+    def test_fixed_context_combines_all_first_request_input_categories(self):
+        summary = audit.summarize(self.unit([
+            self.message("claude-sonnet-5-5", input=100, cache_read=200,
+                         cache_write_5m=300, cache_write_1h=400, output=500),
+            self.message("claude-sonnet-5-5", input=999, cache_read=888, output=777),
+        ]), RATES)
+        self.assertEqual(summary["fixed"], 1000)
+        self.assertEqual(summary["tokens"]["input"], 1099)
+        self.assertEqual(summary["tokens"]["cache_read"], 1088)
+
+    def test_fixed_context_uses_first_request_even_when_its_input_is_zero(self):
+        summary = audit.summarize(self.unit([
+            self.message("claude-sonnet-5-5", output=5),
+            self.message("claude-sonnet-5-5", input=50),
+        ]), RATES)
+        self.assertEqual(summary["fixed"], 0)
+
+    def test_uncached_fixed_context_does_not_require_a_known_model_rate(self):
+        summary = audit.summarize(self.unit([
+            self.message("claude-mystery-1", input=321, output=20),
+        ]), RATES)
+        self.assertEqual(summary["fixed"], 321)
+        self.assertIsNone(summary["cost"])
 
     def test_unit_with_an_unrated_model_has_no_cost(self):
         summary = audit.summarize(self.unit([self.message("claude-mystery-1", output=10)]), RATES)
@@ -375,6 +411,31 @@ class ReportCase(TempCase):
 
 
 class ReportTests(ReportCase):
+    def test_uncached_spawns_have_fixed_context_in_json_and_text_reports(self):
+        tb.add_session(self.projects, self.slug, "uncached", [
+            tb.assistant("uncached-main", out=1),
+        ], subagents=[
+            {"id": "uncached1", "type": "uncached-test", "records": [
+                tb.assistant("uncached1a", inp=1200, out=10, sidechain=True),
+            ]},
+            {"id": "uncached2", "type": "uncached-test", "records": [
+                tb.assistant("uncached2a", inp=2400, out=15, sidechain=True),
+                tb.assistant("uncached2b", inp=9600, out=5, sidechain=True),
+            ]},
+        ])
+        report = self.report(since="2026-10-01")
+        row = self.row(report, "uncached-test")
+        self.assertEqual(row["fixed_context_median"], 1800)
+        self.assertEqual((row["spawns"], row["messages"]), (2, 3))
+        self.assertEqual((row["tokens"]["input"], row["tokens"]["output"]), (13_200, 30))
+        self.assertAlmostEqual(row["cost"], (13_200 * 3 + 30 * 15) / 1e6)
+        decoded = json.loads(json.dumps(report))
+        json_row = self.row(decoded, "uncached-test")
+        self.assertEqual(json_row["fixed_context_median"], 1800)
+        text_row = next(line for line in audit.format_report(report).splitlines()
+                        if line.startswith("uncached-test"))
+        self.assertIn("1,800", text_row)
+
     def test_rows_costs_and_shares(self):
         report = self.report(since="2026-10-01")
         main = self.row(report, "main")

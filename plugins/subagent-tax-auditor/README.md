@@ -32,6 +32,8 @@ Copy `plugins/subagent-tax-auditor/skills/subagent-tax-auditor` into `~/.claude/
 
 For each agent type and model: spawns, cost, share of cost, share of output tokens, fixed context per spawn (the median size of a spawn's first request), and output tokens. A short data-quality footer says what it could not read: skipped lines, subagents with no meta file, and models with no price.
 
+Fixed context counts all input tokens in the first request: uncached input, cache reads, and five-minute and one-hour cache writes. It excludes output tokens and later requests, so a spawn with caching off still shows its initial input size. This is a first-request input proxy, not a separate measurement of the system prompt alone; token totals and cost accounting are unchanged.
+
 ```text
 type       model             spawns     cost   cost%  output%  fixed ctx/spawn  output tok
 reviewer   claude-opus-5-5       14    $0.51   58.7%    39.6%           60,000       8,400

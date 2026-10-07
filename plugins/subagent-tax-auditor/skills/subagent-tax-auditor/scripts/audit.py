@@ -275,7 +275,8 @@ def summarize(unit, rates):
         "first_model": first["model"],
         "tokens": total,
         "cost": cost if priced else None,
-        "fixed": first["tokens"]["cache_read"] + first["tokens"]["cache_write_5m"] + first["tokens"]["cache_write_1h"],
+        "fixed": sum(first["tokens"][kind] for kind in
+                     ("input", "cache_read", "cache_write_5m", "cache_write_1h")),
         "messages": len(unit["messages"]),
         "description": unit["description"],
     }
