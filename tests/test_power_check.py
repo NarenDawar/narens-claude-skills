@@ -258,6 +258,69 @@ class MainTests(unittest.TestCase):
         self.assertIsNone(data["lid_close_action"])
         self.assertIsNone(data["keeps_awake"])
 
+    def test_unlabelled_powercfg_output_reports_unreadable_lid(self):
+        outputs = [text.replace("Current AC Power Setting Index", "Indice secteur")
+                   .replace("Current DC Power Setting Index", "Indice batterie")
+                   for text in self.laptop_outputs()]
+        p1, p2, p3 = self.patched("windows", outputs)
+        with p1, p2, p3:
+            code, out, err = run_main("--json")
+        data = json.loads(out)
+        self.assertEqual((code, err), (0, ""))
+        self.assertIsNone(data["keeps_awake"])
+        self.assertIsNone(data["lid_close_action"])
+        self.assertIn("lid close: could not be read", data["findings"])
+        self.assertFalse(any("no setting found" in line for line in data["findings"]))
+
+    def test_unreadable_lid_does_not_claim_a_desktop_keeps_awake(self):
+        never = fixture("windows_sleep_real.txt")
+        for lid in ("", "Parametres illisibles", fixture("windows_lid_qh_real.txt")
+                    .replace("Current AC Power Setting Index", "Unlabelled AC")
+                    .replace("Current DC Power Setting Index", "Unlabelled DC")):
+            with self.subTest(lid=lid):
+                p1, p2, p3 = self.patched("windows", [never, never, lid], battery=False)
+                with p1, p2, p3:
+                    code, out, _ = run_main()
+                self.assertEqual(code, 0)
+                self.assertIn("lid close: could not be read", out)
+                self.assertIn("keeps awake unattended: unknown", out)
+                self.assertNotIn("no setting found", out)
+
+    def test_failing_lid_query_on_a_desktop_is_unreadable_not_absent(self):
+        never = fixture("windows_sleep_real.txt")
+        failure = power_check.PowerError("cannot query")
+        p1, p2, p3 = self.patched("windows", [never, never, failure, failure], battery=False)
+        with p1, p2, p3:
+            code, out, err = run_main("--json")
+        data = json.loads(out)
+        self.assertEqual((code, err), (0, ""))
+        self.assertIsNone(data["keeps_awake"])
+        self.assertIn("lid close: could not be read", data["findings"])
+
+    def test_scheme_only_output_preserves_missing_setting_behavior(self):
+        never = fixture("windows_sleep_real.txt")
+        scheme = fixture("windows_lid_query_hidden_real.txt")
+        for lid in (scheme, scheme.splitlines()[0] + "\n"):
+            with self.subTest(lid=lid):
+                p1, p2, p3 = self.patched("windows", [never, never, lid], battery=False)
+                with p1, p2, p3:
+                    code, out, _ = run_main("--json")
+                data = json.loads(out)
+                self.assertEqual(code, 0)
+                self.assertIs(data["keeps_awake"], True)
+                self.assertIn("lid close: no setting found (no battery, so likely a desktop)",
+                              data["findings"])
+
+    def test_unrecognized_lid_indexes_are_unknown_not_absent(self):
+        never = fixture("windows_sleep_real.txt")
+        lid = fixture("windows_lid_qh_real.txt").replace("0x00000001", "0x00000063")
+        p1, p2, p3 = self.patched("windows", [never, never, lid], battery=False)
+        with p1, p2, p3:
+            _, out, _ = run_main("--json")
+        data = json.loads(out)
+        self.assertIsNone(data["keeps_awake"])
+        self.assertIn("lid close: could not be read", data["findings"])
+
     def test_a_failing_hibernate_query_is_unknown_not_an_error(self):
         err = power_check.PowerError("no")
         outputs = [fixture("windows_sleep_real.txt"), err, err, fixture("windows_lid_qh_real.txt")]

@@ -90,7 +90,19 @@ def parse_pmset_sleep(text):
     return int(match.group(1)) if match else None
 
 
-def summarize(os_name, sleep_after, lid_action=None, hibernate_after=None, has_battery=None):
+def scheme_only(text):
+    """Recognize a successful scheme header with no setting, not arbitrary unreadable text."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    guid = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+    if not lines or len(lines) > 2:
+        return False
+    if not re.fullmatch(rf"Power Scheme GUID:\s*{guid}(?:\s+\(.*\))?", lines[0]):
+        return False
+    return len(lines) == 1 or bool(re.fullmatch(r"GUID Alias:\s*SCHEME_[A-Z0-9_]+", lines[1]))
+
+
+def summarize(os_name, sleep_after, lid_action=None, hibernate_after=None, has_battery=None,
+              lid_unreadable=False):
     findings = []
     sleeps = False
     unknown = False
@@ -113,6 +125,9 @@ def summarize(os_name, sleep_after, lid_action=None, hibernate_after=None, has_b
                 "lid close: not readable (a closed MacBook lid sleeps it unless it is on power "
                 "with an external display)"
             )
+        elif lid_unreadable:
+            unknown = True
+            findings.append("lid close: could not be read")
         elif has_battery is False:
             findings.append("lid close: no setting found (no battery, so likely a desktop)")
         else:
@@ -181,6 +196,7 @@ def collect():
             None if all(v is None for v in lid.values()) else lid,
             hibernate_after,
             battery_present(),
+            lid_unreadable=all(v is None for v in lid.values()) and not scheme_only(lid_text),
         )
     if name == "macos":
         return summarize(name, {"any": parse_pmset_sleep(run_command(["pmset", "-g"]))})

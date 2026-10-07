@@ -12,6 +12,8 @@ Ask things like "will this scheduled task actually run?", "check this before I s
 
 **Before you schedule:** reads the task prompt, lists the tools it will likely need so you can pre-approve them, adds a time guard so a late catch-up run does not act on stale data, and checks whether your machine keeps awake (sleep timeout and lid-close action).
 
+On Windows, a scheme-only lid query is reported as no setting found. A failed query, empty response, or setting output whose labels cannot be parsed is instead reported as could not be read; it does not establish that a desktop stays awake. This is diagnostic wording, not support for parsing localized `powercfg` labels.
+
 **After a run:** reads the run's outcome and tells you which of these happened: it halted on a tool nobody approved, the machine slept through it, it ran late as a catch-up, it failed with an error, or there is not enough data to say.
 
 Small stdlib-only Python scripts do the checking and the classifying, so the answers are not guesses. Nothing is edited without your yes.
