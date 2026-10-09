@@ -40,7 +40,7 @@ The full list is the `PHRASES` table at the top of `hooks/match.ts`; adding a ph
 
 ## How the last test result works
 
-The mod watches the Bash commands the model runs. When one is a test run (`pytest`, `python -m unittest`, `npm test`, `cargo test`, `go test`, `jest`, `vitest`, `make test` and the like, on their own or after a `cd`), it remembers the command, whether it passed or failed, and when. It is deliberately strict: a command that pipes the output, chains with `;`, `||` or `&`, or only mentions a runner (`echo pytest`) is not recorded, because a wrong "the tests passed" is worse than no answer. A run that was interrupted or timed out is not recorded either. If no test run has been seen, the question goes to the model, which can run the tests itself.
+The mod watches the Bash commands the model runs. When one is a test run (`pytest`, `python -m unittest`, `npm test`, `cargo test`, `go test`, `jest`, `vitest`, `make test` and the like, on their own or after a `cd`), it remembers the command, whether it passed or failed, and when. It records only when it is certain, and otherwise it forgets: a test run that pipes its output (`pytest | tail`), chains with `;`, `||` or `&`, goes through a wrapper like `uv run`, was started in the background, or was interrupted or auto-backgrounded after a timeout clears the saved record instead of leaving an older run to answer for it, because a wrong "the tests passed" is worse than no answer. (A failing run is recorded as failed whatever its output says.) If there is no record, the question goes to the model, which can run the tests itself.
 
 ## Limits
 
@@ -48,7 +48,7 @@ The mod watches the Bash commands the model runs. When one is a test run (`pytes
 - **It saves tokens only for the listed questions, typed as written.** Everything else costs what it always did.
 - **The test answer is not live.** It reports the last run the model made, not tests you ran in your own terminal, and files may have changed since.
 - **It only answers your own typed prompts.** Pasted attachments, messages from other plugins, peers or schedules, and anything it cannot answer cleanly (git missing, a timeout, an unexpected error) go to the model untouched.
-- **It only reads.** It runs fixed `git` commands, never anything taken from your message, and changes nothing.
+- **It only reads.** It runs fixed `git` commands (with `--no-optional-locks`, so even `git status` does not touch the index lock while Claude is running its own git commands), never anything taken from your message, and changes nothing.
 - **Not checked in a live session yet:** how a locally answered prompt looks on screen (the API documents the text as shown to you), and whether a failed Bash test run always arrives flagged as an error, which the recorder relies on.
 
 ## Try it

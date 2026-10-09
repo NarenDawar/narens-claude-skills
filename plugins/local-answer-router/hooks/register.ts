@@ -11,7 +11,7 @@ import {
   type GitResult,
 } from './answer'
 import { matchIntent, stripAskPrefix, type Intent } from './match'
-import { recordFrom } from './testrun'
+import { observe } from './testrun'
 
 const GIT_TIMEOUT_MS = 5000
 
@@ -26,24 +26,28 @@ export type Deps = {
 
 type Next = (e: PromptSubmitInput) => Promise<PromptSubmitResult>
 
+// --no-optional-locks: even `git status` and `git diff` may refresh the index and take index.lock,
+// which would make a git command the model runs at the same moment fail. Answering must not write.
+const git = (...args: string[]): string[] => ['git', '--no-optional-locks', ...args]
+
 const answerFor = async (intent: Intent, deps: Deps): Promise<string | null> => {
   switch (intent) {
     case 'branch': {
-      const branch = await deps.run(['git', 'branch', '--show-current'])
+      const branch = await deps.run(git('branch', '--show-current'))
       const head =
         branch.exitCode === 0 && branch.stdout.trim() === ''
-          ? await deps.run(['git', 'rev-parse', '--short', 'HEAD'])
+          ? await deps.run(git('rev-parse', '--short', 'HEAD'))
           : null
       return answerBranch(branch, head)
     }
     case 'status':
-      return answerStatus(await deps.run(['git', 'status', '--porcelain=v1', '-b']))
+      return answerStatus(await deps.run(git('status', '--porcelain=v1', '-b')))
     case 'lastCommit':
-      return answerLastCommit(await deps.run(['git', 'log', '-1', '--format=%h%x09%s%x09%cr%x09%an']))
+      return answerLastCommit(await deps.run(git('log', '-1', '--format=%h%x09%s%x09%cr%x09%an')))
     case 'diffSummary':
       return answerDiffSummary(
-        await deps.run(['git', 'diff', '--stat']),
-        await deps.run(['git', 'diff', '--cached', '--stat']),
+        await deps.run(git('diff', '--stat')),
+        await deps.run(git('diff', '--cached', '--stat')),
       )
     case 'lastTest':
       return answerLastTest(await deps.lastTest(), deps.now())
@@ -90,9 +94,11 @@ export const register: Register = on => {
     const ran = await next(e)
 
     try {
-      const record = recordFrom(e.command, ran, Date.now())
-      if (record !== null) {
-        await update($, lastTestAtom, () => record)
+      const seen = observe(e.command, e.run_in_background === true, ran, Date.now())
+      if (seen.kind === 'record') {
+        await update($, lastTestAtom, () => seen.record)
+      } else if (seen.kind === 'clear') {
+        await update($, lastTestAtom, () => null)
       }
     } catch {
       // The recorder only watches; a failure here must never reach the tool call.

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { isTestCommand, recordFrom } from './testrun'
+import { isTestCommand, observe } from './testrun'
 
 describe('isTestCommand', () => {
   test('known runners count', () => {
@@ -93,44 +93,84 @@ describe('isTestCommand', () => {
   })
 })
 
-describe('recordFrom', () => {
+describe('observe', () => {
   const NOW = 1_700_000_000_000
+  const record = (command: string, failed: boolean) => ({ kind: 'record', record: { command, failed, at: NOW } })
 
   test('a passing run is recorded as not failed', () => {
-    expect(recordFrom('pytest -q', { isError: false }, NOW)).toEqual({ command: 'pytest -q', failed: false, at: NOW })
-    expect(recordFrom('pytest -q', {}, NOW)).toEqual({ command: 'pytest -q', failed: false, at: NOW })
+    expect(observe('pytest -q', false, { isError: false }, NOW)).toEqual(record('pytest -q', false))
+    expect(observe('pytest -q', false, {}, NOW)).toEqual(record('pytest -q', false))
   })
 
   test('a failing run is recorded as failed', () => {
-    expect(recordFrom('npm test', { isError: true, text: '3 failing' }, NOW)).toEqual({
-      command: 'npm test',
-      failed: true,
-      at: NOW,
-    })
+    expect(observe('npm test', false, { isError: true, text: '3 failing' }, NOW)).toEqual(record('npm test', true))
   })
 
-  test('a denied call records nothing', () => {
-    expect(recordFrom('pytest', { deny: 'not allowed' }, NOW)).toBe(null)
-  })
-
-  test('an interrupted or timed-out failure records nothing', () => {
-    for (const text of ['Command interrupted by user', 'Cancelled', 'operation aborted', 'Command timed out after 120s', 'Timeout']) {
-      expect(recordFrom('pytest', { isError: true, text }, NOW)).toBe(null)
+  test('a failing run is recorded as failed whatever its output says', () => {
+    const outputs = [
+      'Exceeded timeout of 5000 ms for a test.',
+      'asyncio.CancelledError',
+      'FAILED tests/test_a.py::test_handles_interrupt',
+      'operation aborted by the server',
+    ]
+    for (const text of outputs) {
+      expect(observe('npx jest', false, { isError: true, text }, NOW)).toEqual(record('npx jest', true))
     }
   })
 
-  test('a passing run whose output mentions a timeout is still recorded', () => {
-    expect(recordFrom('pytest', { isError: false, text: 'test_timeout PASSED' }, NOW)?.failed).toBe(false)
+  test('a denied call changes nothing', () => {
+    expect(observe('pytest', false, { deny: 'not allowed' }, NOW)).toEqual({ kind: 'ignore' })
   })
 
-  test('a command that is not a test run records nothing', () => {
-    expect(recordFrom('echo pytest', { isError: false }, NOW)).toBe(null)
+  test('a run that did not finish in the foreground clears the record', () => {
+    const unfinished = [
+      { result: { backgroundTaskId: 'b1' } },
+      { result: { backgroundedByUser: true } },
+      { result: { timedOutAfterMs: 120000 } },
+      { result: { interrupted: true } },
+    ]
+    for (const ran of unfinished) {
+      expect(observe('pytest', false, ran, NOW)).toEqual({ kind: 'clear' })
+    }
+    expect(observe('pytest', true, { isError: false }, NOW)).toEqual({ kind: 'clear' })
+  })
+
+  test('a result with the background fields unset or false still records', () => {
+    const ran = { result: { backgroundTaskId: undefined, backgroundedByUser: false, interrupted: false } }
+    expect(observe('pytest', false, ran, NOW)).toEqual(record('pytest', false))
+  })
+
+  test('a test run it cannot read cleanly clears the record', () => {
+    const unclear = [
+      'python -m pytest -q 2>&1 | tail -20',
+      'pytest | tee out.txt',
+      'uv run pytest',
+      'npx jest | cat',
+      'pytest; echo done',
+      'cd missing && pytest && npm run lint',
+      'echo pytest',
+      'grep pytest notes.txt',
+      'cargo test --no-run | head',
+      'make test || true',
+    ]
+    for (const command of unclear) {
+      expect(observe(command, false, { isError: false }, NOW)).toEqual({ kind: 'clear' })
+    }
+  })
+
+  test('a command that is not about tests changes nothing', () => {
+    for (const command of ['ls', 'git status', 'cat package.json', 'npm install', 'cargo build', 'make build', 'python script.py']) {
+      expect(observe(command, false, { isError: false }, NOW)).toEqual({ kind: 'ignore' })
+    }
   })
 
   test('the stored command is trimmed and capped', () => {
     const long = 'pytest ' + 'x'.repeat(500)
-    const record = recordFrom('  ' + long + '  ', { isError: false }, NOW)
-    expect(record?.command.length).toBe(200)
-    expect(record?.command.startsWith('pytest xxx')).toBe(true)
+    const seen = observe('  ' + long + '  ', false, { isError: false }, NOW)
+    expect(seen.kind).toBe('record')
+    if (seen.kind === 'record') {
+      expect(seen.record.command.length).toBe(200)
+      expect(seen.record.command.startsWith('pytest xxx')).toBe(true)
+    }
   })
 })

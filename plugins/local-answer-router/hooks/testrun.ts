@@ -16,10 +16,17 @@ const RUNNERS: readonly RegExp[] = [
   /^make test(?: |$)/,
 ]
 
+// A runner named anywhere in a command, however it is wrapped: used only to notice that a test run
+// happened which isTestCommand cannot read cleanly, so the older record must not keep answering.
+const MENTIONS_RUNNER =
+  /(?:^|[^A-Za-z0-9_.-])(?:pytest|py\.test|unittest|jest|vitest|rspec)(?![A-Za-z0-9_-])|(?:^|[^A-Za-z0-9_-])(?:npm|pnpm|yarn)\s+(?:run\s+)?t(?:est)?(?![A-Za-z0-9_-])|(?:cargo(?:\s+\+\S+)?|go|dotnet|mvn|\.\/mvnw|gradle|\.\/gradlew|make)\s+test(?![A-Za-z0-9_-])/
+
 const ASSIGNMENTS = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/
 const CD = /^cd(?: |$)/
-const GAVE_UP = /interrupt|cancel|abort|timed out|timeout/i
 const MAX_COMMAND = 200
+
+// Fields of a Bash result that say the command did not run to its end in the foreground.
+const NOT_FINISHED = ['backgroundTaskId', 'backgroundedByUser', 'timedOutAfterMs', 'interrupted'] as const
 
 /**
  * True when the command's exit status is the test run's: runner last, only `cd` before it, and no
@@ -39,18 +46,40 @@ export const isTestCommand = (command: string): boolean => {
   return segments.slice(0, -1).every(segment => CD.test(segment))
 }
 
-/** The record to keep for a finished Bash call, or null when it should not be kept. */
-export const recordFrom = (
+const finishedInForeground = (result: unknown): boolean => {
+  if (typeof result !== 'object' || result === null) {
+    return true
+  }
+  const fields = result as Record<string, unknown>
+  return !NOT_FINISHED.some(key => Boolean(fields[key]))
+}
+
+/** What a finished Bash call means for the kept record of the last test run. */
+export type Observation = { kind: 'record'; record: LastTest } | { kind: 'clear' } | { kind: 'ignore' }
+
+/**
+ * The rule is: record only when certain, otherwise clear. A clean foreground test command is
+ * recorded (failed or not, whatever its output says). A test run that cannot be read cleanly
+ * (piped, chained, backgrounded, interrupted) clears the record, so the question goes to the model
+ * instead of an older run answering for it. Anything unrelated to tests changes nothing.
+ */
+export const observe = (
   command: string,
-  ran: { deny?: string; isError?: boolean; text?: string },
+  background: boolean,
+  ran: { deny?: string; isError?: boolean; result?: unknown },
   now: number,
-): LastTest | null => {
-  if (ran.deny !== undefined || !isTestCommand(command)) {
-    return null
+): Observation => {
+  if (ran.deny !== undefined) {
+    return { kind: 'ignore' }
   }
-  const failed = ran.isError === true
-  if (failed && GAVE_UP.test(ran.text ?? '')) {
-    return null
+  if (!isTestCommand(command)) {
+    return MENTIONS_RUNNER.test(command) ? { kind: 'clear' } : { kind: 'ignore' }
   }
-  return { command: command.trim().slice(0, MAX_COMMAND), failed, at: now }
+  if (background || !finishedInForeground(ran.result)) {
+    return { kind: 'clear' }
+  }
+  return {
+    kind: 'record',
+    record: { command: command.trim().slice(0, MAX_COMMAND), failed: ran.isError === true, at: now },
+  }
 }

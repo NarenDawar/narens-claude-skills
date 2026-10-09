@@ -47,7 +47,7 @@ const passing = () => {
 
 describe('makeHandler: answering', () => {
   test('branch', async () => {
-    const { deps: d } = deps({ 'git branch --show-current': ok('main\n') })
+    const { deps: d } = deps({ 'git --no-optional-locks branch --show-current': ok('main\n') })
     const { next, seen } = passing()
     const result = await makeHandler(d)(event('what branch am i on'), next)
     expect(result).toEqual({ drop: `${LABEL} On branch main` })
@@ -56,20 +56,20 @@ describe('makeHandler: answering', () => {
 
   test('branch on a detached head asks for the short hash', async () => {
     const { deps: d, ran } = deps({
-      'git branch --show-current': ok('\n'),
-      'git rev-parse --short HEAD': ok('abc1234\n'),
+      'git --no-optional-locks branch --show-current': ok('\n'),
+      'git --no-optional-locks rev-parse --short HEAD': ok('abc1234\n'),
     })
     const result = await makeHandler(d)(event('which branch'), passing().next)
     expect(result).toEqual({ drop: `${LABEL} Detached HEAD at abc1234` })
-    expect(ran).toEqual(['git branch --show-current', 'git rev-parse --short HEAD'])
+    expect(ran).toEqual(['git --no-optional-locks branch --show-current', 'git --no-optional-locks rev-parse --short HEAD'])
   })
 
   test('status, last commit and diff summary use their fixed git commands', async () => {
     const { deps: d, ran } = deps({
-      'git status --porcelain=v1 -b': ok('## main\n M a.py\n'),
-      'git log -1 --format=%h%x09%s%x09%cr%x09%an': ok('abc\tsubject\t1 day ago\tN\n'),
-      'git diff --stat': ok(' 1 file changed, 1 insertion(+)\n'),
-      'git diff --cached --stat': ok(''),
+      'git --no-optional-locks status --porcelain=v1 -b': ok('## main\n M a.py\n'),
+      'git --no-optional-locks log -1 --format=%h%x09%s%x09%cr%x09%an': ok('abc\tsubject\t1 day ago\tN\n'),
+      'git --no-optional-locks diff --stat': ok(' 1 file changed, 1 insertion(+)\n'),
+      'git --no-optional-locks diff --cached --stat': ok(''),
     })
     const handler = makeHandler(d)
     expect(await handler(event('what changed'), passing().next)).toEqual({ drop: `${LABEL} main: 1 modified\n   M a.py` })
@@ -78,10 +78,10 @@ describe('makeHandler: answering', () => {
       drop: `${LABEL} unstaged: 1 file changed, 1 insertion(+); staged: none`,
     })
     expect(ran).toEqual([
-      'git status --porcelain=v1 -b',
-      'git log -1 --format=%h%x09%s%x09%cr%x09%an',
-      'git diff --stat',
-      'git diff --cached --stat',
+      'git --no-optional-locks status --porcelain=v1 -b',
+      'git --no-optional-locks log -1 --format=%h%x09%s%x09%cr%x09%an',
+      'git --no-optional-locks diff --stat',
+      'git --no-optional-locks diff --cached --stat',
     ])
   })
 
@@ -93,7 +93,7 @@ describe('makeHandler: answering', () => {
   })
 
   test('outside a repository the answer says so', async () => {
-    const { deps: d } = deps({ 'git branch --show-current': failed('fatal: not a git repository') })
+    const { deps: d } = deps({ 'git --no-optional-locks branch --show-current': failed('fatal: not a git repository') })
     expect(await makeHandler(d)(event('what branch'), passing().next)).toEqual({
       drop: `${LABEL} This folder is not inside a git repository.`,
     })
@@ -121,11 +121,11 @@ describe('makeHandler: falling through', () => {
   test('every intent falls through when git rejects, times out or exits unexpectedly', async () => {
     const asks = ['what branch', 'what changed', 'last commit', 'diff stat']
     const commands = [
-      'git branch --show-current',
-      'git status --porcelain=v1 -b',
-      'git log -1 --format=%h%x09%s%x09%cr%x09%an',
-      'git diff --stat',
-      'git diff --cached --stat',
+      'git --no-optional-locks branch --show-current',
+      'git --no-optional-locks status --porcelain=v1 -b',
+      'git --no-optional-locks log -1 --format=%h%x09%s%x09%cr%x09%an',
+      'git --no-optional-locks diff --stat',
+      'git --no-optional-locks diff --cached --stat',
     ]
     for (const ask of asks) {
       for (const failure of [new Error('spawn git ENOENT'), failed('fatal: weird', 1)]) {
@@ -168,7 +168,7 @@ describe('makeHandler: whose prompt it is', () => {
 
   test('only the composer is answered; every other origin passes through untouched', async () => {
     for (const origin of origins) {
-      const { deps: d, ran } = deps({ 'git branch --show-current': ok('main\n') })
+      const { deps: d, ran } = deps({ 'git --no-optional-locks branch --show-current': ok('main\n') })
       const { next, seen } = passing()
       const e = event('what branch am i on', { origin })
       expect(await makeHandler(d)(e, next)).toEqual({ text: 'what branch am i on' })
@@ -178,7 +178,7 @@ describe('makeHandler: whose prompt it is', () => {
   })
 
   test('attachments pass through untouched', async () => {
-    const { deps: d, ran } = deps({ 'git branch --show-current': ok('main\n') })
+    const { deps: d, ran } = deps({ 'git --no-optional-locks branch --show-current': ok('main\n') })
     const { next, seen } = passing()
     const e = event('what branch am i on', { attachments: [{ kind: 'image' }] })
     expect(await makeHandler(d)(e, next)).toEqual({ text: 'what branch am i on' })
@@ -187,7 +187,7 @@ describe('makeHandler: whose prompt it is', () => {
   })
 
   test('an empty attachments list does not stop it', async () => {
-    const { deps: d } = deps({ 'git branch --show-current': ok('main\n') })
+    const { deps: d } = deps({ 'git --no-optional-locks branch --show-current': ok('main\n') })
     const result = await makeHandler(d)(event('what branch am i on', { attachments: [] }), passing().next)
     expect(result).toEqual({ drop: `${LABEL} On branch main` })
   })
@@ -266,19 +266,53 @@ describe('local-answer-router registration', () => {
     await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
     expect(store.value).toEqual({ command: 'pytest -q', failed: false, at: expect.any(Number) })
     await $.tool.call({ tool: 'Bash', command: 'ls' })
-    await $.tool.call({ tool: 'Bash', command: 'echo pytest' })
-    expect(store.writes).toBe(1)
+    await $.tool.call({ tool: 'Bash', command: 'git status' })
+    expect(store.writes).toBe(1) // unrelated commands leave the record alone
     failedRun = true
     await $.tool.call({ tool: 'Bash', command: 'cd app && npm test' })
     expect(store.value).toEqual({ command: 'cd app && npm test', failed: true, at: expect.any(Number) })
     expect(store.writes).toBe(2)
   })
 
-  test('an interrupted test run is not recorded', async ($, on) => {
+  test('a failing run whose output mentions a timeout is still recorded as failed', async ($, on) => {
     const store = withState(on as never)
-    on('tool.call', () => ({ ...BASH_OK, isError: true, text: 'Command interrupted by user' }) as never)
-    await $.tool.call({ tool: 'Bash', command: 'pytest' })
-    expect(store.writes).toBe(0)
+    on('tool.call', () => ({ ...BASH_OK, isError: true, text: 'Exceeded timeout of 5000 ms for a test.' }) as never)
+    await $.tool.call({ tool: 'Bash', command: 'npx jest' })
+    expect(store.value).toEqual({ command: 'npx jest', failed: true, at: expect.any(Number) })
+  })
+
+  test('a run that was backgrounded or interrupted clears the record instead of keeping an older pass', async ($, on) => {
+    const store = withState(on as never)
+    let result: Record<string, unknown> = {}
+    on('tool.call', () => ({ ...BASH_OK, result }) as never)
+    for (const unfinished of [{ backgroundTaskId: 'b1' }, { timedOutAfterMs: 120000 }, { interrupted: true }]) {
+      result = {}
+      await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
+      expect(store.value).toEqual({ command: 'pytest -q', failed: false, at: expect.any(Number) })
+      result = unfinished
+      await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
+      expect(store.value).toBe(null)
+    }
+  })
+
+  test('a call started in the background clears the record', async ($, on) => {
+    const store = withState(on as never)
+    on('tool.call', () => BASH_OK as never)
+    await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
+    expect(store.value).not.toBe(null)
+    await $.tool.call({ tool: 'Bash', command: 'pytest -q', run_in_background: true } as never)
+    expect(store.value).toBe(null)
+  })
+
+  test('a test run it cannot read cleanly clears the record instead of keeping an older pass', async ($, on) => {
+    const store = withState(on as never)
+    on('tool.call', () => BASH_OK as never)
+    for (const command of ['python -m pytest -q 2>&1 | tail -20', 'uv run pytest', 'npx jest | cat']) {
+      await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
+      expect(store.value).not.toBe(null)
+      await $.tool.call({ tool: 'Bash', command })
+      expect(store.value).toBe(null)
+    }
   })
 
   test('a failing state write never reaches the Bash call', async ($, on) => {
