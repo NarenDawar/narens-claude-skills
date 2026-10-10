@@ -1,0 +1,13 @@
+{
+  "name": "model-bakeoff",
+  "version": "0.1.0",
+  "description": "Use when the user wants to pick the cheapest model that still works for a custom subagent, asks whether Haiku or Sonnet would do, or wants to re-check an agent's model after new models ship (for example 'which model should this agent use?', 'could this run on Haiku?', 'bake-off my reviewer agent').",
+  "author": {
+    "name": "Naren",
+    "url": "https://github.com/NarenDawar"
+  },
+  "homepage": "https://github.com/NarenDawar/narens-claude-toolkit/tree/main/plugins/model-bakeoff",
+  "repository": "https://github.com/NarenDawar/narens-claude-toolkit",
+  "license": "MIT",
+  "keywords": ["claude-code", "claude-skills", "agent-skills"]
+}
