@@ -13,6 +13,7 @@
 
 ## Mods
 
+- [local-answer-router](https://github.com/NarenDawar/narens-claude-toolkit/blob/main/plugins/local-answer-router/README.md): Answers trivial questions (what branch, what changed, did the last test pass) from git and the last test run on your machine, with no model tokens.
 - [subagent-meter](https://github.com/NarenDawar/narens-claude-toolkit/blob/main/plugins/subagent-meter/README.md): A live status line showing how much of your session's tokens go to subagents, and which agent type uses the most.
 
 ## MCP servers

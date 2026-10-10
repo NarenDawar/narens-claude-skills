@@ -1,0 +1,14 @@
+{
+  "name": "local-answer-router",
+  "version": "0.1.0",
+  "description": "Answers trivial questions (what branch, what changed, did the last test pass) from git and the last test run on your machine, with no model tokens.",
+  "author": {
+    "name": "Naren",
+    "url": "https://github.com/NarenDawar"
+  },
+  "homepage": "https://github.com/NarenDawar/narens-claude-toolkit/tree/main/plugins/local-answer-router",
+  "repository": "https://github.com/NarenDawar/narens-claude-toolkit",
+  "license": "MIT",
+  "keywords": ["claude-code", "claude-mods", "tokens", "git"],
+  "types": "./types/index.d.ts"
+}
