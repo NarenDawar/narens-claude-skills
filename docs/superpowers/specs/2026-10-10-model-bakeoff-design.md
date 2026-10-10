@@ -67,7 +67,7 @@ A custom subagent runs on whatever model its `model` field says (or the default)
 
 ## The scripts
 
-`scripts/bakeoff.py` (subcommands; exit 0 ok, 1 an unexpected result such as no model passing is NOT an error and exits 0, 2 usage and input errors):
+`scripts/bakeoff.py` (subcommands; exit 0 on success, which includes "no model passed" since that is a result and not an error; exit 2 for usage and input errors, an aborted run, or a refused edit):
 
 - `agents [--agents-dir DIR ...] [--json]`: custom agents with name, model, tools, file, and whether the agent is read-only (every tool in the read-only set Read, Grep, Glob, or the tools list is exactly such a subset).
 - `check-cases --cases FILE`.
