@@ -38,6 +38,11 @@
       "name": "schedule-doctor",
       "source": "./plugins/schedule-doctor",
       "description": "Use when the user is about to schedule a Claude task, or asks why a scheduled task, /loop, cron job or routine did not run, ran late, or stopped partway (for example 'will this scheduled task actually run?', 'why didn't my 7am task fire?', 'check this before I schedule it')."
+    },
+    {
+      "name": "model-bakeoff",
+      "source": "./plugins/model-bakeoff",
+      "description": "Use when the user wants to pick the cheapest model that still works for a custom subagent, asks whether Haiku or Sonnet would do, or wants to re-check an agent's model after new models ship (for example 'which model should this agent use?', 'could this run on Haiku?', 'bake-off my reviewer agent')."
     }
   ]
 }
