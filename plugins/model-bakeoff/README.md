@@ -48,7 +48,8 @@ This is an illustration of the format, not a measured result.
 - A pass is evidence on your cases, not proof about all inputs, and models are nondeterministic.
 - Cost is measured from `claude -p` output, not your subscription quota.
 - Custom subagents only. Skills are a planned follow-up once they can be checked.
-- Not checked against a real session yet: the exact `claude -p --agents` behavior and JSON fields on your machine. Try it on a small read-only agent first.
+- **Cost per run is noisy with few runs.** The first run of each model pays to fill the prompt cache and costs several times more than the rest (in the live check below, $0.0144 against $0.0008 to $0.0015 for Haiku). With only a few runs per case, a close call between two models can flip on that one cold run; use more runs, or treat close costs as a tie.
+- **What has been checked live.** One bake-off against a real `claude` (version 2.1.296, Windows): a read-only agent with text checks, Haiku and Sonnet, 2 cases × 2 runs. The flags (`--agents` file, `--agent`, `--tools`, `--permission-mode dontAsk`, `--permission-prompts none`, `--strict-mcp-config`, `--max-budget-usd`) were accepted, the JSON had the cost, turns and resolved model ID the script reads, and the agent used its tools. The whole run cost about 7 cents. **Not checked live:** the rubric judge, agents that can write or run commands (`--allow-writes`), `command` checks, and `resolve`. Try those on something small first.
 
 ## Install
 

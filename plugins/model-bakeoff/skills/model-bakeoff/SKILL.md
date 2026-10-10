@@ -41,5 +41,6 @@ A custom subagent runs on whatever its `model` field says, usually chosen by fee
 - Never run `run` before `estimate` was shown and the user said yes. Never use `--allow-writes` without naming the tools and commands first.
 - Never edit an agent file the user did not approve in this conversation. Never use `apply` without showing `plan` first.
 - Never print or paraphrase the agents' outputs unless the user chose `--keep-outputs`.
-- Never claim a saving the measurements do not show.
+- Never claim a saving the measurements do not show. The first run of each model pays for a cold prompt cache and costs several times more than the rest, so with few runs the cost ranking can be noisy: when the passing models' mean costs are close, say so instead of presenting a clear winner, and offer more runs (`--runs`).
+- The rubric judge, `--allow-writes` agents, `command` checks and `resolve` have not been exercised against a real `claude` yet; say so if the user relies on them for the first time, and suggest trying them on something small.
 - The tool does not stop Claude Code from using any model and does not measure the subscription quota.
