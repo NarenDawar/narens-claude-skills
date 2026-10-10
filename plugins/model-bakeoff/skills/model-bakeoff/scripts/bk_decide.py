@@ -1,5 +1,7 @@
 """The pass rule and the choice of the cheapest passing model. Pure; standard library only."""
 
+import math
+
 DEFAULT_RULE = {"runs": 3, "minCaseRuns": 2, "minPassRate": 0.9}
 TIERS = {"haiku": 0, "sonnet": 1, "opus": 2, "fable": 3}
 
@@ -25,8 +27,10 @@ def summarize(entry, case_ids, rule):
     total = len(runs)
     passed = sum(1 for run in runs if run["passed"])
     pass_rate = passed / total if total else 0.0
-    costs = [run["cost"] for run in runs if isinstance(run.get("cost"), (int, float))]
-    mean_cost = sum(costs) / total if total and len(costs) == total else None
+    costs = [run["cost"] for run in runs if type(run.get("cost")) in (int, float)
+             and 0 <= run["cost"] < math.inf]
+    # Divide first so even very large finite costs do not overflow the sum.
+    mean_cost = sum(cost / total for cost in costs) if total and len(costs) == total else None
     return {
         "requested": entry["requested"],
         "resolvedId": entry.get("resolvedId"),
