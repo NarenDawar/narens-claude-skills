@@ -9,6 +9,8 @@ from agent_edit import AgentError
 READ_ONLY_TOOLS = frozenset({"Read", "Grep", "Glob", "LS", "NotebookRead"})
 DEFAULT_READ_TOOLS = ("Read", "Grep", "Glob")
 DEFAULT_WRITE_TOOLS = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+_TOOL = re.compile(r"^[A-Za-z0-9_.*:()/ -]+\Z")
 _KEY = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*)\s*:\s*(.*?)\s*$")
 _BLOCK = ("|", ">", "|-", ">-", "|+", ">+")
 
@@ -37,8 +39,18 @@ def parse_definition(text, fallback_name=""):
             raise AgentError("the frontmatter has a multi-line value; the bake-off cannot read it safely")
         fields[match.group(1)] = _unquote(value)
     tools = [part.strip() for part in fields.get("tools", "").split(",") if part.strip()]
+    name = fields.get("name") or fallback_name
+    # The name becomes a command-line value and part of a results file name, and the tool names go
+    # onto the command line too; an agent file is untrusted text (it may come from a cloned repo).
+    if not _NAME.match(name):
+        raise AgentError(
+            f"the agent name {name!r} must start with a letter or digit and use only letters, digits, '.', '_' and '-'"
+        )
+    for tool in tools:
+        if not _TOOL.match(tool):
+            raise AgentError(f"the tool name {tool!r} has characters the bake-off will not pass to a command")
     return {
-        "name": fields.get("name") or fallback_name,
+        "name": name,
         "description": fields.get("description") or "",
         "tools": tools or None,
         "model": fields.get("model") or None,

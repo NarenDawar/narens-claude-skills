@@ -69,13 +69,16 @@ def parse_output(stdout):
             resolved = name
             best = cost if cost is not None else best
     result = obj.get("result")
+    subtype = obj.get("subtype") if isinstance(obj.get("subtype"), str) else ""
+    if not isinstance(result, str) and not obj.get("is_error") and not subtype.startswith("error"):
+        return None  # not a result at all (for example an error object); never read it as an empty success
     return {
         "text": result if isinstance(result, str) else "",
         "cost": _number(obj.get("total_cost_usd")),
         "turns": _int(obj.get("num_turns")),
         "durationMs": _int(obj.get("duration_ms")),
         "isError": bool(obj.get("is_error")),
-        "subtype": obj.get("subtype") if isinstance(obj.get("subtype"), str) else "",
+        "subtype": subtype,
         "tokens": sum(count for count in counts if count is not None) if any(c is not None for c in counts) else None,
         "resolvedId": resolved,
     }
@@ -115,6 +118,9 @@ def _kill_tree(proc):
 
 def run_claude(argv, prompt, cwd, timeout):
     """(stdout, returncode, timed_out). The prompt goes on stdin; the process tree is stopped on timeout."""
+    problem = bk_cases.shim_problem(argv)
+    if problem:
+        raise RunnerError(problem)
     kwargs = {} if os.name == "nt" else {"start_new_session": True}
     try:
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd), **kwargs)
@@ -132,9 +138,9 @@ def run_claude(argv, prompt, cwd, timeout):
         return "", None, True
 
 
-def probe(claude, alias, timeout=120):
+def probe(claude, alias, timeout=120, max_usd=0.25):
     """The model ID an alias resolves to today (one trivial call, no tools), or None."""
-    argv = list(claude) + _COMMON + ["--tools", "", "--model", alias]
+    argv = list(claude) + _COMMON + ["--tools", "", "--model", alias, "--max-budget-usd", f"{max_usd:g}"]
     scratch = tempfile.mkdtemp(prefix="bakeoff-probe-")
     try:
         out, code, timed_out = run_claude(argv, "Reply with the word ok.", scratch, timeout)
@@ -146,7 +152,7 @@ def probe(claude, alias, timeout=120):
     return info["resolvedId"]
 
 
-def judge(claude, model, rubric, prompt, output, timeout):
+def judge(claude, model, rubric, prompt, output, timeout, max_usd=0.5):
     """(passed, reason, cost): a separate model call that grades one output against a rubric."""
     text = (
         "You are grading an AI agent's answer against a rubric. Be strict and literal.\n\n"
@@ -155,7 +161,7 @@ def judge(claude, model, rubric, prompt, output, timeout):
         f"The agent's answer:\n{output[:JUDGE_PROMPT_LIMIT]}\n\n"
         'Reply with exactly one JSON object and nothing else: {"pass": true or false, "reason": "one short sentence"}.'
     )
-    argv = list(claude) + _COMMON + ["--tools", "", "--model", model]
+    argv = list(claude) + _COMMON + ["--tools", "", "--model", model, "--max-budget-usd", f"{max_usd:g}"]
     scratch = tempfile.mkdtemp(prefix="bakeoff-judge-")
     try:
         out, code, timed_out = run_claude(argv, text, scratch, timeout)
@@ -190,7 +196,9 @@ def _one_run(claude, definition, case, base_dir, model, number, agents_file, opt
         record["checks"] = bk_cases.evaluate(case, output, scratch)
         passed = all(check["passed"] for check in record["checks"])
         if case.get("rubric"):
-            verdict, reason, judge_cost = judge(claude, options["judge_model"], case["rubric"], case["prompt"], output, options["timeout"])
+            verdict, reason, judge_cost = judge(
+                claude, options["judge_model"], case["rubric"], case["prompt"], output, options["timeout"], options["max_run_usd"]
+            )
             record["judgeCost"] = judge_cost
             if verdict is None:
                 record["kind"] = "judge"
@@ -206,11 +214,14 @@ def _one_run(claude, definition, case, base_dir, model, number, agents_file, opt
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def execute(claude, definition, cases_data, base_dir, models, runs, options, log):
-    """Run every model x case x run. Returns (entries, abort_reason or None); entries hold what ran."""
+def execute(claude, definition, cases_data, base_dir, models, runs, options, log, entries=None):
+    """Run every model x case x run. Returns (entries, abort_reason or None); entries hold what ran.
+
+    A caller that passes its own `entries` list keeps what ran even when an exception ends the run.
+    """
     meta = tempfile.mkdtemp(prefix="bakeoff-meta-")
     agents_file = os.path.join(meta, "agents.json")
-    entries = []
+    entries = [] if entries is None else entries
     spent = 0.0
     streak = 0
     try:
@@ -227,6 +238,8 @@ def execute(claude, definition, cases_data, base_dir, models, runs, options, log
                     entry["runs"].append(record)
                     entry["resolvedId"] = entry["resolvedId"] or record["resolvedId"]
                     spent += (record["cost"] or 0.0) + (record["judgeCost"] or 0.0)
+                    if record["kind"] == "timeout":
+                        spent += options["max_run_usd"]  # a killed run may have spent up to its cap
                     if record["kind"] in ("cli", "no-result"):
                         streak += 1
                     else:

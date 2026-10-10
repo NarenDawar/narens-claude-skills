@@ -21,7 +21,7 @@ The skill runs your test cases on Haiku, Sonnet and Opus, tells you which models
 > bake-off my code-reviewer agent
 
 Cases (drafted from the agent's description, edited by you): 4
-18 agent runs on haiku, sonnet, opus (ceiling $4.50; uses your claude usage). Go?   yes
+36 agent runs on haiku, sonnet, opus (ceiling $36 at the $1 per-run cap, $20 total cap; uses your claude usage). Go?   yes
 
 model   resolved id                 result  pass rate  mean cost/run
 haiku   claude-haiku-4-5-20251001   PASS    92%        $0.0021

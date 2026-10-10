@@ -198,6 +198,35 @@ def first_json_object(text):
     return None
 
 
+_CMD_SPECIAL = frozenset('&|<>^%"\r\n')
+
+
+def shim_problem(argv, os_name=None):
+    """Why argv cannot be run safely, or None.
+
+    On Windows Python starts a .cmd or .bat file (such as the npm `claude.CMD` shim) through
+    cmd.exe, which acts on & | < > ^ % and quotes inside an argument. Text that came from a file
+    must never reach it, so such an argument is refused.
+    """
+    if (os_name or os.name) != "nt" or not str(argv[0]).lower().endswith((".cmd", ".bat")):
+        return None
+    for arg in argv[1:]:
+        if any(char in _CMD_SPECIAL for char in str(arg)):
+            return f"an argument contains a character cmd.exe would interpret; refusing to run {argv[0]!r} with it"
+    return None
+
+
+def resolve_program(program, scratch):
+    """The program to run for a `command` check: a relative path means inside the scratch folder
+    (not wherever this script happens to run); a bare name is looked up on PATH only."""
+    if "/" in program or "\\" in program or os.sep in program:
+        path = Path(program)
+        if not path.is_absolute():
+            path = Path(scratch) / path
+        return str(path) if path.exists() else None
+    return shutil.which(program, path=os.environ.get("PATH", ""))
+
+
 def run_check(check, output, scratch):
     """(passed, short detail) for one check on the agent's output."""
     kind = check["type"]
@@ -217,9 +246,12 @@ def run_check(check, output, scratch):
         missing = [key for key in check["required"] if key not in obj]
         return (not missing), ("has every required key" if not missing else "missing keys: " + ", ".join(missing))
     argv = list(check["argv"])
-    program = shutil.which(argv[0])
+    program = resolve_program(argv[0], scratch)
     if program is None:
         return False, f"cannot find {argv[0]}"
+    problem = shim_problem([program] + argv[1:])
+    if problem:
+        return False, problem
     try:
         done = subprocess.run(
             [program] + argv[1:], cwd=str(scratch), capture_output=True,

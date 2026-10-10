@@ -13,6 +13,7 @@ Runs use the user's own `claude` login and therefore their usage. Standard libra
 """
 import argparse
 import json
+import math
 import os
 import shutil
 import sys
@@ -105,8 +106,64 @@ def _write_json(path, data):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8", newline="\n")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=True) + "\n", encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _finite_positive(value, flag):
+    if not (isinstance(value, (int, float)) and math.isfinite(value) and value > 0):
+        raise UsageError(f"{flag} must be a finite number greater than 0")
+
+
+def _check_rule_numbers(min_case_runs, runs, min_pass_rate):
+    if not (isinstance(min_case_runs, int) and 1 <= min_case_runs <= runs):
+        raise UsageError(f"--min-case-runs must be between 1 and the number of runs ({runs})")
+    if not (isinstance(min_pass_rate, (int, float)) and math.isfinite(min_pass_rate) and 0 < min_pass_rate <= 1):
+        raise UsageError("--min-pass-rate must be greater than 0 and at most 1")
+
+
+def _check_numbers(args):
+    """Refuse numbers that would turn a safety limit into nothing (nan, 0, negatives) before any run."""
+    if args.runs < 1:
+        raise UsageError("--runs must be at least 1")
+    _finite_positive(args.max_run_usd, "--max-run-usd")
+    _finite_positive(args.max_total_usd, "--max-total-usd")
+    if hasattr(args, "timeout"):
+        _finite_positive(args.timeout, "--timeout")
+    if hasattr(args, "min_case_runs"):
+        _check_rule_numbers(args.min_case_runs, args.runs, args.min_pass_rate)
+
+
+def _check_out(path):
+    path = Path(path)
+    if path.is_dir():
+        raise UsageError(f"{path} is a folder, not a results file")
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _previous_results(path, agent, sha, rule):
+    """(earlier results to reuse or None, a note saying why they were not reused or None)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None, None
+    if not isinstance(data, dict) or data.get("resultsVersion") != RESULTS_VERSION or not isinstance(data.get("models"), list):
+        return None, None
+    if data.get("agent") != agent:
+        return None, "the saved results are for another agent; they were not reused"
+    if data.get("aborted"):
+        return None, "the saved results come from an aborted run; they were not reused"
+    if data.get("casesSha") != sha:
+        return None, "the cases file changed since the saved results; they were not reused (everything was re-run)"
+    if data.get("rule") != rule:
+        return None, "the saved results used a different rule; they were not reused"
+    return data, None
 
 
 def _load_results(path):
@@ -148,6 +205,7 @@ def cmd_check_cases(args, claude):
 
 
 def cmd_estimate(args, claude):
+    _check_numbers(args)
     definition, _ = bk_agents.load_definition(args.agent, _dirs(args))
     data, sha, _ = _load_cases_for(args.agent, args.cases)
     models = _models(args.models)
@@ -166,6 +224,7 @@ def cmd_estimate(args, claude):
 
 
 def cmd_run(args, claude):
+    _check_numbers(args)
     claude_cmd = _claude(claude)
     definition, _ = bk_agents.load_definition(args.agent, _dirs(args))
     data, sha, base = _load_cases_for(args.agent, args.cases)
@@ -178,33 +237,58 @@ def cmd_run(args, claude):
     total = len(data["cases"]) * len(models) * args.runs
     if total > RUN_LIMIT_WITHOUT_YES and not args.yes:
         raise UsageError(f"this bake-off makes {total} agent runs; pass --yes to continue")
+    out_path = Path(args.out) if args.out else Path(".claude") / "bakeoff" / f"{definition['name']}.results.json"
+    _check_out(out_path)  # before anything is spent
+    rule = {"runs": args.runs, "minCaseRuns": args.min_case_runs, "minPassRate": args.min_pass_rate}
+    previous, note = _previous_results(out_path, definition["name"], sha, rule)
+    if note:
+        print(f"note: {note}", file=sys.stderr)
     options = {
         "read_only": bk_agents.is_read_only(definition["tools"]),
         "max_run_usd": args.max_run_usd, "max_total_usd": args.max_total_usd, "timeout": args.timeout,
         "keep_outputs": args.keep_outputs, "judge_model": args.judge_model,
     }
-    entries, aborted = bk_runner.execute(
-        claude_cmd, definition, data, base, models, args.runs, options, lambda line: print(line, file=sys.stderr),
-    )
+    entries = []
+    aborted = None
+    try:
+        _, aborted = bk_runner.execute(
+            claude_cmd, definition, data, base, models, args.runs, options,
+            lambda line: print(line, file=sys.stderr), entries=entries,
+        )
+    except KeyboardInterrupt:
+        aborted = "interrupted (Ctrl-C)"
+    except (bk_runner.RunnerError, OSError, ValueError) as exc:
+        aborted = f"stopped by an error: {_safe(exc)}"
+    saved_models = entries
+    target = out_path
+    if previous is not None and not aborted:
+        fresh = {entry["requested"]: entry for entry in entries}
+        saved_models = [fresh.pop(old["requested"], old) for old in previous["models"]] + list(fresh.values())
+    elif previous is not None:
+        target = out_path.with_name(out_path.stem + ".aborted.json")  # never overwrite good results with a partial run
     results = {
         "resultsVersion": RESULTS_VERSION,
         "agent": definition["name"],
         "date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "rule": {"runs": args.runs, "minCaseRuns": args.min_case_runs, "minPassRate": args.min_pass_rate},
+        "rule": rule,
         "casesSha": sha,
         "caseIds": [case["id"] for case in data["cases"]],
         "allowWrites": bool(args.allow_writes),
         "judgeModel": args.judge_model,
         "currentModel": definition["model"],
-        "models": entries,
+        "models": saved_models,
         "aborted": aborted,
         "applied": None,
     }
-    _write_json(args.out or Path(".claude") / "bakeoff" / f"{definition['name']}.results.json", results)
+    _write_json(target, results)
     if aborted:
-        print(f"aborted: {aborted}. Partial results were saved; there is no recommendation.", file=sys.stderr)
+        if target != out_path:
+            kept = f"Your earlier results were left untouched; this partial run is in {target}."
+        else:
+            kept = f"Partial results were saved to {target}."
+        print(f"aborted: {aborted}. {kept} There is no recommendation.", file=sys.stderr)
         return 2
-    print(f"done: {sum(len(e['runs']) for e in entries)} runs saved. Next: decide --results <file>")
+    print(f"done: {sum(len(e['runs']) for e in entries)} runs saved ({len(saved_models)} models in {target}). Next: decide --results <file>")
     return 0
 
 
@@ -220,11 +304,15 @@ def _report(results, rule):
 
 def cmd_decide(args, claude):
     results = _load_results(args.results)
-    rule = dict(results.get("rule") or bk_decide.DEFAULT_RULE)
+    rule = dict(bk_decide.DEFAULT_RULE)
+    rule.update(results.get("rule") if isinstance(results.get("rule"), dict) else {})
     if args.min_case_runs is not None:
         rule["minCaseRuns"] = args.min_case_runs
     if args.min_pass_rate is not None:
         rule["minPassRate"] = args.min_pass_rate
+    _check_rule_numbers(rule["minCaseRuns"], rule["runs"], rule["minPassRate"])
+    if not isinstance(results.get("caseIds"), list):
+        raise UsageError(f"{args.results} has no caseIds list")
     summaries, recommendation = _report(results, rule)
     if args.json:
         print(json.dumps({"agent": results.get("agent"), "rule": rule, "models": summaries, "recommendation": recommendation,
@@ -351,7 +439,7 @@ def main(argv=None, claude=None):
     args = build_parser().parse_args(argv)
     try:
         return args.handler(args, claude)
-    except (UsageError, AgentError, bk_cases.CasesError, bk_runner.RunnerError) as exc:
+    except (UsageError, AgentError, bk_cases.CasesError, bk_runner.RunnerError, OSError, ValueError) as exc:
         print(f"error: {_safe(exc) if not isinstance(exc, UsageError) else exc}", file=sys.stderr)
         return 2
 
