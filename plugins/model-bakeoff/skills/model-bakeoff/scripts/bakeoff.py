@@ -175,7 +175,45 @@ def _load_results(path):
         raise UsageError(f"{path} is not valid JSON") from None
     if not isinstance(data, dict) or data.get("resultsVersion") != RESULTS_VERSION or not isinstance(data.get("models"), list):
         raise UsageError(f"{path} is not a bake-off results file (resultsVersion {RESULTS_VERSION})")
+    _validate_results(data, path)
     return data
+
+
+def _validate_results(data, path):
+    """Validate fields consumed by reports before trusting a hand-edited file."""
+    def require(condition, field, expected):
+        if not condition:
+            raise UsageError(f"{path}: {field} must be {expected}")
+
+    case_ids = data.get("caseIds")
+    require(isinstance(case_ids, list) and all(isinstance(c, str) and c for c in case_ids),
+            "caseIds", "a list of nonempty strings")
+    if "rule" in data:
+        rule = data["rule"]
+        require(isinstance(rule, dict), "rule", "an object")
+        for key in ("runs", "minCaseRuns"):
+            if key in rule:
+                require(type(rule[key]) is int and rule[key] >= 1, f"rule.{key}", "a positive integer")
+        if "minPassRate" in rule:
+            rate = rule["minPassRate"]
+            require(type(rate) in (int, float) and 0 < rate <= 1,
+                    "rule.minPassRate", "a number greater than 0 and at most 1")
+    for index, entry in enumerate(data["models"]):
+        field = f"models[{index}]"
+        require(isinstance(entry, dict), field, "an object")
+        require(isinstance(entry.get("requested"), str) and entry["requested"],
+                f"{field}.requested", "a nonempty string")
+        require(entry.get("resolvedId") is None or isinstance(entry["resolvedId"], str),
+                f"{field}.resolvedId", "a string or null")
+        require(isinstance(entry.get("runs"), list), f"{field}.runs", "a list")
+        for number, run in enumerate(entry["runs"]):
+            run_field = f"{field}.runs[{number}]"
+            require(isinstance(run, dict), run_field, "an object")
+            require(isinstance(run.get("case"), str) and run["case"] in case_ids,
+                    f"{run_field}.case", "an ID in caseIds")
+            require(type(run.get("passed")) is bool, f"{run_field}.passed", "a boolean")
+            require(run.get("kind") is None or isinstance(run["kind"], str),
+                    f"{run_field}.kind", "a string or null")
 
 
 # --- commands ----------------------------------------------------------------------------------
