@@ -128,6 +128,7 @@ class FixtureTests(Base):
             "missing": "does not exist",
             "../outside-fixture": "relative path inside",
             "fx/../../outside-fixture": "relative path inside",
+            "fx/../fx": "relative path inside",  # stays inside, but ".." is refused outright
             str(outside): "relative path inside",
             "": "relative path inside",
         }
